@@ -11,6 +11,9 @@ type RunOptions struct {
 	// Input is the input to the run
 	Input interface{}
 
+	// SessionID is the session identifier for memory isolation
+	SessionID string
+
 	// Context is a user-provided context object
 	Context interface{}
 

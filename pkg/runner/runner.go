@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/pontus-devoteam/agent-sdk-go/pkg/memory"
 	"github.com/pontus-devoteam/agent-sdk-go/pkg/model"
 	"github.com/pontus-devoteam/agent-sdk-go/pkg/result"
 	"github.com/pontus-devoteam/agent-sdk-go/pkg/tool"
@@ -34,7 +36,8 @@ type Runner struct {
 	delegationChains map[string][]string     // Maps agent name to stack of delegators
 
 	// Internal state
-	mu sync.RWMutex
+	mu     sync.RWMutex
+	memory memory.Memory // Memory storage for run results
 }
 
 // NewRunner creates a new runner with default configuration
@@ -59,6 +62,13 @@ func (r *Runner) WithDefaultProvider(provider model.Provider) *Runner {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.defaultProvider = provider
+	return r
+}
+
+func (r *Runner) WithMemory(memoryStorage memory.Memory) *Runner {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.memory = memoryStorage
 	return r
 }
 
@@ -94,7 +104,61 @@ func (r *Runner) Run(ctx context.Context, agent AgentType, opts *RunOptions) (*r
 	}
 
 	// Run the agent loop
-	return r.runAgentLoop(ctx, agent, opts.Input, opts)
+	// Prepare input with memory context if memory is configured
+	input := opts.Input
+	r.mu.RLock()
+	mem := r.memory
+	r.mu.RUnlock()
+
+	sessionID := opts.SessionID
+	if mem != nil && sessionID != "" {
+		memoryItems, err := mem.Get(ctx, sessionID, &memory.GetCriteria{
+			Reverse: false, // Get in chronological order
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get memory items: %w", err)
+		}
+
+		if len(memoryItems) > 0 {
+			inputList := make([]interface{}, 0, len(memoryItems)+1)
+
+			// Add memory items
+			for _, item := range memoryItems {
+				inputList = append(inputList, item.ToInputItem())
+			}
+
+			// Add current input
+			if opts.Input != nil {
+				if inputStr, ok := opts.Input.(string); ok && inputStr != "" {
+					inputList = append(inputList, map[string]interface{}{
+						"type":    "message",
+						"role":    "user",
+						"content": inputStr,
+					})
+				} else {
+					inputList = append(inputList, opts.Input)
+				}
+			}
+
+			input = inputList
+		}
+	}
+
+	// Run the agent loop
+	runResult, err := r.runAgentLoop(ctx, agent, input, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store the result in memory if memory is configured
+	if mem != nil && sessionID != "" {
+		if err := mem.Add(ctx, sessionID, runResult); err != nil {
+			// Log the error but don't fail the run
+			log.Printf("Warning: Failed to store run result in memory: %v", err)
+		}
+	}
+
+	return runResult, nil
 }
 
 // RunSync is a synchronous version of Run

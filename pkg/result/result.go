@@ -155,3 +155,36 @@ func (r *RunResult) ToInputList() []interface{} {
 
 	return result
 }
+
+// ToMemoryItems converts the result to memory items
+func (r *RunResult) ToMemoryItems() []RunItem {
+	var items []RunItem
+
+	// Add the original input as a message item if it's a string
+	if input, ok := r.Input.(string); ok {
+		items = append(items, &MessageItem{
+			Role:    "user",
+			Content: input,
+		})
+	}
+
+	// Add all new items
+	items = append(items, r.NewItems...)
+
+	// Add the final output as an assistant message if it's a string
+	if output, ok := r.FinalOutput.(string); ok {
+		items = append(items, &MessageItem{
+			Role:    "assistant",
+			Content: output,
+		})
+	}
+
+	return items
+}
+
+// FromMemoryItems creates a partial RunResult from memory items
+func FromMemoryItems(items []RunItem) *RunResult {
+	return &RunResult{
+		NewItems: items,
+	}
+}
