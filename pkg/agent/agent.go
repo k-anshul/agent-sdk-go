@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"sync"
@@ -163,9 +164,17 @@ func (a *Agent) AddFunctionTool(name, description string, fn interface{}) *Agent
 }
 
 // AsTool transforms this agent into a tool callable by other agents
-func (a *Agent) AsTool(toolName, toolDescription string) tool.Tool {
-	// TODO: Implement agent as tool
-	panic("not implemented")
+func (a *Agent) AsTool(toolName, toolDescription string, schema map[string]any, agentRunnerFn func(ctx context.Context, params map[string]any) (any, error)) tool.Tool {
+	t := tool.NewFunctionTool(
+		toolName,
+		toolDescription,
+		func(ctx context.Context, params map[string]any) (any, error) {
+			return agentRunnerFn(ctx, params)
+		})
+	if schema != nil {
+		t.WithSchema(schema)
+	}
+	return t
 }
 
 // SetModelProvider sets the model provider for the agent
